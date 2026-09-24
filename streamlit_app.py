@@ -5,38 +5,170 @@ import sqlite3
 import datetime
 import pandas as pd
 import streamlit as st
-import plotly.express as px
 import plotly.graph_objects as go
 
 # Configure Streamlit page
 st.set_page_config(
-    page_title="PMS — PT Petrokimia Gresik",
+    page_title="PMS Petrokimia Gresik",
     page_icon="🏢",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling
+# Custom High-Fidelity CSS matching React UI
 st.markdown("""
 <style>
-    .main-header {
-        font-size: 1.6rem;
-        font-weight: 800;
-        color: #1e293b;
-        margin-bottom: 0.2rem;
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
-    .sub-header {
-        font-size: 0.85rem;
-        color: #64748b;
+    
+    .stApp {
+        background-color: #0f172a;
+        color: #f8fafc;
+    }
+    
+    /* Top Header */
+    .top-header-container {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 1rem;
+        margin-bottom: 1.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .page-title {
+        font-size: 1.5rem;
+        font-weight: 800;
+        color: #ffffff;
+        letter-spacing: -0.025em;
+        margin: 0;
+    }
+    .page-desc {
+        font-size: 0.8rem;
+        color: #94a3b8;
+        margin-top: 0.2rem;
+    }
+    .period-badge {
+        background: rgba(30, 41, 59, 0.8);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: #38bdf8;
+        font-size: 0.75rem;
+        font-weight: 700;
+        padding: 6px 12px;
+        border-radius: 8px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    /* KPI Summary Cards Grid */
+    .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        gap: 1rem;
         margin-bottom: 1.5rem;
     }
-    .metric-card {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
+    .kpi-card {
+        background: #1e293b;
         border-radius: 12px;
-        padding: 14px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        padding: 1rem 1.1rem;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        position: relative;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        transition: transform 0.2s ease, border-color 0.2s ease;
     }
+    .kpi-card:hover {
+        transform: translateY(-2px);
+        border-color: rgba(255, 255, 255, 0.2);
+    }
+    .kpi-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+    }
+    .kpi-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .kpi-value {
+        font-size: 1.65rem;
+        font-weight: 900;
+        color: #ffffff;
+        letter-spacing: -0.02em;
+        line-height: 1.1;
+    }
+    .kpi-footer {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 0.5rem;
+        font-size: 0.75rem;
+    }
+    .kpi-pct {
+        font-weight: 700;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.7rem;
+    }
+    
+    /* Variant Styles */
+    .kpi-default { border-left: 4px solid #64748b; }
+    .kpi-success { border-left: 4px solid #10b981; }
+    .kpi-success .kpi-value { color: #34d399; }
+    .kpi-success .kpi-pct { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+    
+    .kpi-warning { border-left: 4px solid #f59e0b; }
+    .kpi-warning .kpi-value { color: #fbbf24; }
+    .kpi-warning .kpi-pct { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+    
+    .kpi-info { border-left: 4px solid #0ea5e9; }
+    .kpi-info .kpi-value { color: #38bdf8; }
+    .kpi-info .kpi-pct { background: rgba(14, 165, 233, 0.15); color: #38bdf8; }
+    
+    .kpi-danger { border-left: 4px solid #f43f5e; }
+    .kpi-danger .kpi-value { color: #fb7185; }
+    .kpi-danger .kpi-pct { background: rgba(244, 63, 94, 0.15); color: #fb7185; }
+
+    .kpi-purple { border-left: 4px solid #8b5cf6; }
+    .kpi-purple .kpi-value { color: #a78bfa; }
+    .kpi-purple .kpi-pct { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+
+    /* Custom Table Card */
+    .custom-card {
+        background: #1e293b;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 1.2rem;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+    }
+    .custom-card-title {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: #ffffff;
+        margin-bottom: 0.25rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .custom-card-subtitle {
+        font-size: 0.75rem;
+        color: #94a3b8;
+        margin-bottom: 1rem;
+    }
+
+    /* Status Badges */
+    .badge-appr { background: rgba(16, 185, 129, 0.15); color: #34d399; font-weight: 600; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-wait { background: rgba(245, 158, 11, 0.15); color: #fbbf24; font-weight: 600; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .badge-draft { background: rgba(14, 165, 233, 0.15); color: #38bdf8; font-weight: 600; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; border: 1px solid rgba(14, 165, 233, 0.3); }
+    .badge-decl { background: rgba(244, 63, 94, 0.15); color: #fb7185; font-weight: 600; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; border: 1px solid rgba(244, 63, 94, 0.3); }
+    .badge-ny { background: rgba(239, 68, 68, 0.15); color: #f87171; font-weight: 600; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; border: 1px solid rgba(239, 68, 68, 0.3); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -55,8 +187,7 @@ def get_db_connection():
     if db_url and ("postgresql" in db_url or "postgres" in db_url) and "localhost" not in db_url:
         try:
             from sqlalchemy import create_engine
-            engine = create_engine(db_url, pool_pre_ping=True)
-            return engine
+            return create_engine(db_url, pool_pre_ping=True)
         except Exception:
             pass
 
@@ -71,28 +202,26 @@ conn = get_db_connection()
 
 def query_df(sql, params=None):
     try:
-        if isinstance(conn, sqlite3.Connection):
-            return pd.read_sql_query(sql, conn, params=params)
-        else:
-            return pd.read_sql_query(sql, conn, params=params)
+        return pd.read_sql_query(sql, conn, params=params)
     except Exception as e:
         st.error(f"Error querying database: {e}")
         return pd.DataFrame()
 
 # ----------------- SIDEBAR -----------------
 with st.sidebar:
-    if os.path.exists("logo-pg.jpg"):
-        st.image("logo-pg.jpg", use_container_width=True)
-    elif os.path.exists("frontend/public/logo-pg.jpg"):
-        st.image("frontend/public/logo-pg.jpg", use_container_width=True)
-    else:
-        st.title("🏢 PMS Petrokimia")
-        
-    st.markdown("### **Performance Management**")
-    st.caption("PT Petrokimia Gresik Tbk")
+    st.markdown("""
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 0;">
+            <div style="font-size: 1.6rem;">🏢</div>
+            <div>
+                <div style="font-weight: 800; font-size: 1rem; color: #ffffff;">PMS Petrokimia</div>
+                <div style="font-size: 0.7rem; color: #94a3b8;">PT Petrokimia Gresik Tbk</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     st.markdown("---")
     
     # Filter Periode
+    st.markdown("**Periode Evaluasi**")
     col_yr, col_tw = st.columns(2)
     with col_yr:
         sel_year = st.selectbox("Tahun", [2026, 2027], index=0)
@@ -101,33 +230,85 @@ with st.sidebar:
         
     st.markdown("---")
     
+    st.markdown("**Modul Kinerja**")
     menu = st.radio(
-        "Menu Navigasi",
+        "Pilih Modul",
         [
-            "🎯 Performance Planning",
-            "👥 Performance Coaching",
-            "📊 Performance Appraisal",
-            "🧭 Performance Review (360)",
-            "📈 Overview Master Karyawan",
-            "⚠️ Data Perlu Review",
-            "📜 Riwayat Aktivitas"
-        ]
+            "Performance Planning",
+            "Performance Coaching",
+            "Performance Appraisal",
+            "Performance Review (360)",
+            "Overview Master Karyawan",
+            "Data Perlu Review",
+            "Riwayat Aktivitas"
+        ],
+        label_visibility="collapsed"
     )
     
     st.markdown("---")
-    st.caption(f"Periode Aktif: **Tahun {sel_year} TW {sel_tw}**")
+    st.markdown(f"""
+        <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255,255,255,0.08); padding: 10px; border-radius: 8px; font-size: 0.75rem; color: #94a3b8;">
+            <div>Target Aktif: <strong style="color: #38bdf8;">Tahun {sel_year} TW {sel_tw}</strong></div>
+            <div style="margin-top: 4px;">Sistem Sinkron: <strong style="color: #34d399;">Online</strong></div>
+        </div>
+    """, unsafe_allow_html=True)
 
 # Get Period ID
 df_period = query_df("SELECT id FROM periods WHERE tahun = ? AND triwulan = ?", (sel_year, sel_tw))
 if not df_period.empty:
     period_id = int(df_period.iloc[0]['id'])
 else:
-    period_id = 2 # Fallback to 2026 TW2
+    period_id = 2
+
+# Helper for Donut Chart with Center Text
+def create_styled_donut(values, labels, colors, center_pct, center_label, center_sub):
+    fig = go.Figure(data=[go.Pie(
+        labels=labels,
+        values=values,
+        hole=0.72,
+        marker=dict(colors=colors, line=dict(color='#0f172a', width=2)),
+        textinfo='none',
+        hoverinfo='label+value+percent'
+    )])
+    
+    fig.update_layout(
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.05,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=11, color="#94a3b8")
+        ),
+        margin=dict(t=10, b=30, l=10, r=10),
+        height=320,
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        annotations=[
+            dict(
+                text=f"<b style='font-size: 24px; color: #ffffff;'>{center_pct}%</b><br><span style='font-size: 11px; font-weight: 700; color: #34d399;'>{center_label}</span><br><span style='font-size: 10px; color: #94a3b8;'>{center_sub}</span>",
+                x=0.5, y=0.5,
+                font_size=12,
+                showarrow=False
+            )
+        ]
+    )
+    return fig
 
 # ----------------- 1. PERFORMANCE PLANNING -----------------
-if menu == "🎯 Performance Planning":
-    st.markdown('<div class="main-header">🎯 Performance Planning</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sub-header">Monitoring Perencanaan KPI Karyawan & Unit Kerja — Periode Tahun {sel_year} TW {sel_tw}</div>', unsafe_allow_html=True)
+if menu == "Performance Planning":
+    st.markdown(f"""
+        <div class="top-header-container">
+            <div>
+                <h1 class="page-title">Performance Planning</h1>
+                <div class="page-desc">Status perencanaan KPI perorangan & unit kerja (Tahun {sel_year} TW {sel_tw})</div>
+            </div>
+            <div class="period-badge">
+                <span>🗓️</span> Target Sinkron: {sel_year} - TW {sel_tw}
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
     df_plan = query_df("SELECT * FROM performance_planning WHERE period_id = ?", (period_id,))
     total = len(df_plan)
@@ -137,37 +318,72 @@ if menu == "🎯 Performance Planning":
         waiting = int(df_plan['status_individu'].str.lower().str.contains('wait').sum())
         drafted = int(df_plan['status_individu'].str.lower().str.contains('draft').sum())
         belum = int(df_plan['status_individu'].str.lower().str.contains('belum|not').sum())
-    else:
-        approved = waiting = drafted = belum = 0
+        submitted = approved + waiting + drafted
+        submitted_pct = round(submitted / total * 100, 1)
         
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Total Karyawan", f"{total:,}")
-    c2.metric("Approved", f"{approved:,}", f"{(approved/total*100 if total else 0):.1f}%")
-    c3.metric("Waiting Approval", f"{waiting:,}", f"{(waiting/total*100 if total else 0):.1f}%")
-    c4.metric("Drafted", f"{drafted:,}", f"{(drafted/total*100 if total else 0):.1f}%")
-    c5.metric("Not Yet Submitted", f"{belum:,}", f"{(belum/total*100 if total else 0):.1f}%")
-    
-    st.markdown("---")
+        depts_count = df_plan['departemen'].nunique()
+    else:
+        approved = waiting = drafted = belum = submitted = depts_count = 0
+        submitted_pct = 0.0
+
+    # 5 KPI Cards
+    st.markdown(f"""
+        <div class="kpi-grid">
+            <div class="kpi-card kpi-default">
+                <div class="kpi-header"><span class="kpi-label">Total Karyawan</span></div>
+                <div class="kpi-value">{total:,}</div>
+                <div class="kpi-footer"><span style="color: #94a3b8;">{depts_count} Departemen</span></div>
+            </div>
+            <div class="kpi-card kpi-success">
+                <div class="kpi-header"><span class="kpi-label">Approved</span></div>
+                <div class="kpi-value">{approved:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(approved/total*100 if total else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+            <div class="kpi-card kpi-warning">
+                <div class="kpi-header"><span class="kpi-label">Waiting Approval</span></div>
+                <div class="kpi-value">{waiting:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(waiting/total*100 if total else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+            <div class="kpi-card kpi-info">
+                <div class="kpi-header"><span class="kpi-label">Drafted</span></div>
+                <div class="kpi-value">{drafted:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(drafted/total*100 if total else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+            <div class="kpi-card kpi-danger">
+                <div class="kpi-header"><span class="kpi-label">Not Yet Submitted</span></div>
+                <div class="kpi-value">{belum:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(belum/total*100 if total else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
     if total > 0:
-        col_chart, col_dept = st.columns([1, 2])
-        with col_chart:
-            st.subheader("Distribusi Status KPI")
-            fig = px.pie(
+        c_chart, c_table = st.columns([1, 2])
+        with c_chart:
+            st.markdown("""
+                <div class="custom-card-title">Overall Planning Status</div>
+                <div class="custom-card-subtitle">Distribusi status KPI karyawan</div>
+            """, unsafe_allow_html=True)
+            fig_plan = create_styled_donut(
                 values=[approved, waiting, drafted, belum],
-                names=['Approved', 'Waiting Approval', 'Drafted', 'Not Yet Submitted'],
-                color_discrete_sequence=['#10b981', '#f59e0b', '#0ea5e9', '#ef4444'],
-                hole=0.6
+                labels=['Approved', 'Waiting Approval', 'Drafted', 'Not Yet Submitted'],
+                colors=['#10b981', '#f59e0b', '#3b82f6', '#ef4444'],
+                center_pct=f"{submitted_pct}",
+                center_label="SUBMITTED",
+                center_sub=f"{submitted:,} / {total:,} Karyawan"
             )
-            fig.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=300)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig_plan, use_container_width=True)
             
-        with col_dept:
-            st.subheader("Ringkasan Per Departemen")
-            df_plan['departemen_clean'] = df_plan['departemen'].fillna('Tanpa Departemen')
-            dept_summary = df_plan.groupby('departemen_clean').agg(
+        with c_table:
+            st.markdown("""
+                <div class="custom-card-title">Ringkasan Per Departemen</div>
+                <div class="custom-card-subtitle">Performa pengajuan KPI unit kerja</div>
+            """, unsafe_allow_html=True)
+            df_plan['dept_name'] = df_plan['departemen'].fillna('Tanpa Departemen')
+            dept_summary = df_plan.groupby('dept_name').agg(
                 Total=('id', 'count'),
                 Approved=('status_individu', lambda s: (s.str.lower() == 'approved').sum()),
+                Waiting=('status_individu', lambda s: s.str.lower().str.contains('wait').sum()),
                 Drafted=('status_individu', lambda s: s.str.lower().str.contains('draft').sum()),
                 Belum=('status_individu', lambda s: s.str.lower().str.contains('belum|not').sum())
             ).reset_index()
@@ -175,23 +391,36 @@ if menu == "🎯 Performance Planning":
             dept_summary = dept_summary.sort_values(by='% Approved', ascending=False)
             st.dataframe(dept_summary, use_container_width=True, hide_index=True)
             
-        st.subheader("Daftar Detail Karyawan")
-        search_p = st.text_input("🔍 Cari Nama atau NIK Karyawan", "")
+        st.markdown("---")
+        st.markdown("""
+            <div class="custom-card-title">Daftar Karyawan</div>
+            <div class="custom-card-subtitle">Detail status perencanaan KPI per individu</div>
+        """, unsafe_allow_html=True)
+        search_p = st.text_input("🔍 Cari Karyawan, NIK, atau Departemen", "", placeholder="Ketik nama atau NIK...")
         if search_p:
-            df_display = df_plan[df_plan['nama'].str.contains(search_p, case=False, na=False) | df_plan['employee_nik'].str.contains(search_p, na=False)]
+            df_disp = df_plan[df_plan['nama'].str.contains(search_p, case=False, na=False) | df_plan['employee_nik'].str.contains(search_p, na=False) | df_plan['departemen'].str.contains(search_p, case=False, na=False)]
         else:
-            df_display = df_plan
+            df_disp = df_plan
             
-        out_table = df_display[['employee_nik', 'nama', 'departemen', 'status_individu', 'submitted_date', 'approved_date']].copy()
-        out_table.columns = ['NIK', 'Nama', 'Departemen', 'Status', 'Tgl Pengajuan', 'Tgl Disetujui']
+        out_table = df_disp[['employee_nik', 'nama', 'departemen', 'status_individu', 'submitted_date', 'approved_date']].copy()
+        out_table.columns = ['NIK', 'Nama Karyawan', 'Departemen', 'Status', 'Tgl Pengajuan', 'Tgl Disetujui']
         st.dataframe(out_table, use_container_width=True, hide_index=True)
     else:
         st.info("Belum ada data Performance Planning untuk periode ini.")
 
 # ----------------- 2. PERFORMANCE COACHING -----------------
-elif menu == "👥 Performance Coaching":
-    st.markdown('<div class="main-header">👥 Performance Coaching</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sub-header">Monitoring Coaching & Bimbingan Superior — Periode Tahun {sel_year} TW {sel_tw}</div>', unsafe_allow_html=True)
+elif menu == "Performance Coaching":
+    st.markdown(f"""
+        <div class="top-header-container">
+            <div>
+                <h1 class="page-title">Performance Coaching</h1>
+                <div class="page-desc">Monitoring bimbingan coaching atasan & bawahan (Tahun {sel_year} TW {sel_tw})</div>
+            </div>
+            <div class="period-badge">
+                <span>🗓️</span> Target Sinkron: {sel_year} - TW {sel_tw}
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
     df_coach = query_df("SELECT * FROM performance_coaching WHERE period_id = ?", (period_id,))
     total = len(df_coach)
@@ -201,34 +430,59 @@ elif menu == "👥 Performance Coaching":
         drafted = int(df_coach['status'].str.lower().str.contains('draft').sum())
         ny = int(df_coach['status'].str.lower().str.contains('not|belum').sum())
         waiting = total - approved - drafted - ny
+        depts_c = df_coach['departemen'].nunique()
     else:
-        approved = drafted = ny = waiting = 0
+        approved = drafted = ny = waiting = depts_c = 0
         
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Karyawan", f"{total:,}")
-    c2.metric("Approved", f"{approved:,}", f"{(approved/total*100 if total else 0):.1f}%")
-    c3.metric("Drafted", f"{drafted:,}", f"{(drafted/total*100 if total else 0):.1f}%")
-    c4.metric("Not Yet Submitted", f"{ny:,}", f"{(ny/total*100 if total else 0):.1f}%")
-    
-    st.markdown("---")
+    st.markdown(f"""
+        <div class="kpi-grid">
+            <div class="kpi-card kpi-default">
+                <div class="kpi-header"><span class="kpi-label">Total Karyawan</span></div>
+                <div class="kpi-value">{total:,}</div>
+                <div class="kpi-footer"><span style="color: #94a3b8;">{depts_c} Departemen</span></div>
+            </div>
+            <div class="kpi-card kpi-success">
+                <div class="kpi-header"><span class="kpi-label">Approved</span></div>
+                <div class="kpi-value">{approved:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(approved/total*100 if total else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+            <div class="kpi-card kpi-info">
+                <div class="kpi-header"><span class="kpi-label">Drafted</span></div>
+                <div class="kpi-value">{drafted:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(drafted/total*100 if total else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+            <div class="kpi-card kpi-danger">
+                <div class="kpi-header"><span class="kpi-label">Not Yet Submitted</span></div>
+                <div class="kpi-value">{ny:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(ny/total*100 if total else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
     if total > 0:
-        col_c1, col_c2 = st.columns([1, 2])
-        with col_c1:
-            st.subheader("Distribusi Status Coaching")
-            fig = px.pie(
+        c_c1, c_c2 = st.columns([1, 2])
+        with c_c1:
+            st.markdown("""
+                <div class="custom-card-title">Distribusi Status Coaching</div>
+                <div class="custom-card-subtitle">Persentase persetujuan coaching</div>
+            """, unsafe_allow_html=True)
+            fig_coach = create_styled_donut(
                 values=[approved, drafted, ny],
-                names=['Approved', 'Drafted', 'Not Yet Submitted'],
-                color_discrete_sequence=['#10b981', '#0ea5e9', '#ef4444'],
-                hole=0.6
+                labels=['Approved', 'Drafted', 'Not Yet Submitted'],
+                colors=['#10b981', '#3b82f6', '#ef4444'],
+                center_pct=f"{round(approved/total*100, 1)}",
+                center_label="APPROVED",
+                center_sub=f"{approved:,} / {total:,} Karyawan"
             )
-            fig.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=300)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig_coach, use_container_width=True)
             
-        with col_c2:
-            st.subheader("Ringkasan Per Departemen")
-            df_coach['departemen_clean'] = df_coach['departemen'].fillna('Tanpa Departemen')
-            c_dept_summary = df_coach.groupby('departemen_clean').agg(
+        with c_c2:
+            st.markdown("""
+                <div class="custom-card-title">Ringkasan Coaching Per Departemen</div>
+                <div class="custom-card-subtitle">Aktivitas coaching unit kerja</div>
+            """, unsafe_allow_html=True)
+            df_coach['dept_name'] = df_coach['departemen'].fillna('Tanpa Departemen')
+            c_dept_summary = df_coach.groupby('dept_name').agg(
                 Total=('id', 'count'),
                 Approved=('status', lambda s: (s.str.lower() == 'approved').sum()),
                 Drafted=('status', lambda s: s.str.lower().str.contains('draft').sum()),
@@ -238,27 +492,36 @@ elif menu == "👥 Performance Coaching":
             c_dept_summary = c_dept_summary.sort_values(by='% Approved', ascending=False)
             st.dataframe(c_dept_summary, use_container_width=True, hide_index=True)
             
-        st.subheader("Daftar Detail Coaching Karyawan & Superior")
+        st.markdown("---")
+        st.markdown("""
+            <div class="custom-card-title">Daftar Detail Coaching</div>
+            <div class="custom-card-subtitle">Detail bimbingan per karyawan dan atasan langsung</div>
+        """, unsafe_allow_html=True)
         search_c = st.text_input("🔍 Cari Karyawan, NIK, atau Atasan", "")
         if search_c:
-            df_c_display = df_coach[
-                df_coach['nama'].str.contains(search_c, case=False, na=False) |
-                df_coach['employee_nik'].str.contains(search_c, na=False) |
-                df_coach['superior_nama'].str.contains(search_c, case=False, na=False)
-            ]
+            df_c_disp = df_coach[df_coach['nama'].str.contains(search_c, case=False, na=False) | df_coach['employee_nik'].str.contains(search_c, na=False) | df_coach['superior_nama'].str.contains(search_c, case=False, na=False)]
         else:
-            df_c_display = df_coach
+            df_c_disp = df_coach
             
-        out_c = df_c_display[['employee_nik', 'nama', 'departemen', 'superior_nama', 'superior_nik', 'jumlah_coaching', 'status']].copy()
+        out_c = df_c_disp[['employee_nik', 'nama', 'departemen', 'superior_nama', 'superior_nik', 'jumlah_coaching', 'status']].copy()
         out_c.columns = ['NIK', 'Nama Karyawan', 'Departemen', 'Nama Atasan', 'NIK Atasan', 'Jml Coaching', 'Status']
         st.dataframe(out_c, use_container_width=True, hide_index=True)
     else:
         st.info("Belum ada data Performance Coaching untuk periode ini.")
 
 # ----------------- 3. PERFORMANCE APPRAISAL -----------------
-elif menu == "📊 Performance Appraisal":
-    st.markdown('<div class="main-header">📊 Performance Appraisal</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sub-header">Evaluasi Penilaian Kinerja Karyawan — Periode Tahun {sel_year} TW {sel_tw}</div>', unsafe_allow_html=True)
+elif menu == "Performance Appraisal":
+    st.markdown(f"""
+        <div class="top-header-container">
+            <div>
+                <h1 class="page-title">Performance Appraisal</h1>
+                <div class="page-desc">Evaluasi penilaian kinerja dan distribusi skor karyawan (Tahun {sel_year} TW {sel_tw})</div>
+            </div>
+            <div class="period-badge">
+                <span>🗓️</span> Target Sinkron: {sel_year} - TW {sel_tw}
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
     df_app = query_df("SELECT * FROM performance_appraisal WHERE period_id = ?", (period_id,))
     total = len(df_app)
@@ -268,50 +531,90 @@ elif menu == "📊 Performance Appraisal":
         waiting = int(df_app['status'].str.lower().str.contains('wait').sum())
         declined = int(df_app['status'].str.lower().str.contains('decline|tolak').sum())
         belum = int(df_app['status'].str.lower().str.contains('belum|not|ny').sum())
+        depts_a = df_app['departemen'].nunique()
     else:
-        approved = waiting = declined = belum = 0
+        approved = waiting = declined = belum = depts_a = 0
         
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Total Karyawan", f"{total:,}")
-    c2.metric("Approved", f"{approved:,}", f"{(approved/total*100 if total else 0):.1f}%")
-    c3.metric("Waiting Approval", f"{waiting:,}", f"{(waiting/total*100 if total else 0):.1f}%")
-    c4.metric("Declined", f"{declined:,}", f"{(declined/total*100 if total else 0):.1f}%")
-    c5.metric("Belum Mengajukan", f"{belum:,}", f"{(belum/total*100 if total else 0):.1f}%")
-    
-    st.markdown("---")
+    st.markdown(f"""
+        <div class="kpi-grid">
+            <div class="kpi-card kpi-default">
+                <div class="kpi-header"><span class="kpi-label">Total Karyawan</span></div>
+                <div class="kpi-value">{total:,}</div>
+                <div class="kpi-footer"><span style="color: #94a3b8;">{depts_a} Departemen</span></div>
+            </div>
+            <div class="kpi-card kpi-success">
+                <div class="kpi-header"><span class="kpi-label">Approved</span></div>
+                <div class="kpi-value">{approved:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(approved/total*100 if total else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+            <div class="kpi-card kpi-purple">
+                <div class="kpi-header"><span class="kpi-label">Waiting Approval</span></div>
+                <div class="kpi-value">{waiting:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(waiting/total*100 if total else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+            <div class="kpi-card kpi-warning">
+                <div class="kpi-header"><span class="kpi-label">Declined</span></div>
+                <div class="kpi-value">{declined:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(declined/total*100 if total else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+            <div class="kpi-card kpi-danger">
+                <div class="kpi-header"><span class="kpi-label">Belum Mengajukan</span></div>
+                <div class="kpi-value">{belum:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(belum/total*100 if total else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
     if total > 0:
-        col_a1, col_a2 = st.columns([1, 1])
-        with col_a1:
-            st.subheader("Distribusi Status Appraisal")
-            fig = px.pie(
+        c_a1, c_a2 = st.columns([1, 1])
+        with c_a1:
+            st.markdown("""
+                <div class="custom-card-title">Distribusi Status Appraisal</div>
+                <div class="custom-card-subtitle">Komposisi persetujuan penilaian kinerja</div>
+            """, unsafe_allow_html=True)
+            fig_app = create_styled_donut(
                 values=[approved, waiting, declined, belum],
-                names=['Approved', 'Waiting Approval', 'Declined', 'Belum Mengajukan'],
-                color_discrete_sequence=['#10b981', '#8b5cf6', '#f59e0b', '#ef4444'],
-                hole=0.6
+                labels=['Approved', 'Waiting Approval', 'Declined', 'Belum Mengajukan'],
+                colors=['#10b981', '#8b5cf6', '#f59e0b', '#ef4444'],
+                center_pct=f"{round(approved/total*100, 1)}",
+                center_label="APPROVED",
+                center_sub=f"{approved:,} / {total:,} Karyawan"
             )
-            fig.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=280)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig_app, use_container_width=True)
             
-        with col_a2:
-            st.subheader("Distribusi Skor Kinerja (Score Buckets)")
+        with c_a2:
+            st.markdown("""
+                <div class="custom-card-title">Distribusi Skor Kinerja (Score Buckets)</div>
+                <div class="custom-card-subtitle">Sebaran nilai akhir kinerja karyawan</div>
+            """, unsafe_allow_html=True)
             scores = pd.to_numeric(df_app['total_score'], errors='coerce').dropna()
             b_u85 = int((scores < 85).sum())
             b_85_95 = int(((scores >= 85) & (scores <= 95)).sum())
             b_96_100 = int(((scores > 95) & (scores <= 100)).sum())
             b_a100 = int((scores > 100).sum())
             
-            fig_bar = px.bar(
+            fig_bar = go.Figure(data=[go.Bar(
                 x=['< 85', '85 - 95', '96 - 100', '> 100'],
                 y=[b_u85, b_85_95, b_96_100, b_a100],
-                color=['< 85', '85 - 95', '96 - 100', '> 100'],
-                color_discrete_sequence=['#ef4444', '#f59e0b', '#0ea5e9', '#10b981'],
-                labels={'x': 'Rentang Nilai', 'y': 'Jumlah Karyawan'}
+                marker=dict(color=['#ef4444', '#f59e0b', '#3b82f6', '#10b981'], line=dict(color='#0f172a', width=1)),
+                text=[b_u85, b_85_95, b_96_100, b_a100],
+                textposition='auto'
+            )])
+            fig_bar.update_layout(
+                margin=dict(t=10, b=30, l=10, r=10),
+                height=320,
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color="#94a3b8"),
+                yaxis=dict(gridcolor="rgba(255,255,255,0.05)")
             )
-            fig_bar.update_layout(showlegend=False, margin=dict(t=10, b=10, l=10, r=10), height=280)
             st.plotly_chart(fig_bar, use_container_width=True)
             
-        st.subheader("Rata-rata Skor per Departemen")
+        st.markdown("---")
+        st.markdown("""
+            <div class="custom-card-title">Rata-rata Skor per Departemen</div>
+            <div class="custom-card-subtitle">Peringkat pencapaian skor penilaian kinerja unit kerja</div>
+        """, unsafe_allow_html=True)
         df_app['score_num'] = pd.to_numeric(df_app['total_score'], errors='coerce')
         dept_app_summary = df_app[df_app['score_num'].notna()].groupby('departemen').agg(
             Jml_Ternilai=('id', 'count'),
@@ -321,56 +624,97 @@ elif menu == "📊 Performance Appraisal":
         dept_app_summary = dept_app_summary.sort_values(by='Rata_Rata_Skor', ascending=False)
         st.dataframe(dept_app_summary, use_container_width=True, hide_index=True)
         
-        st.subheader("Daftar Detail Penilaian Karyawan")
-        search_a = st.text_input("🔍 Cari Karyawan atau NIK", "")
+        st.markdown("---")
+        st.markdown("""
+            <div class="custom-card-title">Daftar Detail Penilaian Karyawan</div>
+            <div class="custom-card-subtitle">Data nilai evaluasi kinerja per individu</div>
+        """, unsafe_allow_html=True)
+        search_a = st.text_input("🔍 Cari Karyawan, NIK, atau Departemen", "")
         if search_a:
-            df_a_display = df_app[df_app['nama'].str.contains(search_a, case=False, na=False) | df_app['employee_nik'].str.contains(search_a, na=False)]
+            df_a_disp = df_app[df_app['nama'].str.contains(search_a, case=False, na=False) | df_app['employee_nik'].str.contains(search_a, na=False) | df_app['departemen'].str.contains(search_a, case=False, na=False)]
         else:
-            df_a_display = df_app
+            df_a_disp = df_app
             
-        out_a = df_a_display[['employee_nik', 'nama', 'departemen', 'status', 'submitted_date', 'total_score']].copy()
+        out_a = df_a_disp[['employee_nik', 'nama', 'departemen', 'status', 'submitted_date', 'total_score']].copy()
         out_a.columns = ['NIK', 'Nama Karyawan', 'Departemen', 'Status', 'Tgl Pengajuan', 'Total Skor']
         st.dataframe(out_a, use_container_width=True, hide_index=True)
     else:
         st.info("Belum ada data Performance Appraisal untuk periode ini.")
 
 # ----------------- 4. PERFORMANCE REVIEW 360 -----------------
-elif menu == "🧭 Performance Review (360)":
-    st.markdown('<div class="main-header">🧭 Performance Review (360)</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sub-header">Monitoring Evaluasi Umpan Balik 360 Derajat — Periode Tahun {sel_year} TW {sel_tw}</div>', unsafe_allow_html=True)
+elif menu == "Performance Review (360)":
+    st.markdown(f"""
+        <div class="top-header-container">
+            <div>
+                <h1 class="page-title">Performance Review (360)</h1>
+                <div class="page-desc">Monitoring evaluasi umpan balik 360 derajat atasan, rekan, dan bawahan (Tahun {sel_year} TW {sel_tw})</div>
+            </div>
+            <div class="period-badge">
+                <span>🗓️</span> Target Sinkron: {sel_year} - TW {sel_tw}
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
     df_rev = query_df("SELECT * FROM performance_review360 WHERE period_id = ?", (period_id,))
     total = len(df_rev)
     
-    all_done = int((df_rev['status'] == 'All Done').sum()) if total else 0
-    almost = int((df_rev['status'] == 'Almost Done').sum()) if total else 0
-    ny = total - all_done - almost if total else 0
-    
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total Karyawan", f"{total:,}")
-    c2.metric("All Done (100% Selesai)", f"{all_done:,}", f"{(all_done/total*100 if total else 0):.1f}%")
-    c3.metric("Dalam Proses / NY Done", f"{ny:,}", f"{(ny/total*100 if total else 0):.1f}%")
-    
-    st.markdown("---")
+    if total > 0:
+        all_done = int((df_rev['status'] == 'All Done').sum())
+        almost = int((df_rev['status'] == 'Almost Done').sum())
+        ny = total - all_done - almost
+    else:
+        all_done = almost = ny = 0
+        
+    st.markdown(f"""
+        <div class="kpi-grid">
+            <div class="kpi-card kpi-default">
+                <div class="kpi-header"><span class="kpi-label">Total Peserta 360</span></div>
+                <div class="kpi-value">{total:,}</div>
+                <div class="kpi-footer"><span style="color: #94a3b8;">Evaluasi 360</span></div>
+            </div>
+            <div class="kpi-card kpi-success">
+                <div class="kpi-header"><span class="kpi-label">All Done (100% Selesai)</span></div>
+                <div class="kpi-value">{all_done:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(all_done/total*100 if total else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+            <div class="kpi-card kpi-info">
+                <div class="kpi-header"><span class="kpi-label">Dalam Proses / Sisa</span></div>
+                <div class="kpi-value">{ny:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(ny/total*100 if total else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
     if total > 0:
-        st.subheader("Daftar Penilaian 360 Karyawan")
-        search_r = st.text_input("🔍 Cari Karyawan atau NIK", "")
+        st.markdown("""
+            <div class="custom-card-title">Daftar Penilaian 360 Karyawan</div>
+            <div class="custom-card-subtitle">Rincian status pengisian penilaian multi-penilai</div>
+        """, unsafe_allow_html=True)
+        search_r = st.text_input("🔍 Cari Karyawan, NIK, atau Departemen", "")
         if search_r:
-            df_r_display = df_rev[df_rev['nama'].str.contains(search_r, case=False, na=False) | df_rev['employee_nik'].str.contains(search_r, na=False)]
+            df_r_disp = df_rev[df_rev['nama'].str.contains(search_r, case=False, na=False) | df_rev['employee_nik'].str.contains(search_r, na=False) | df_rev['departemen'].str.contains(search_r, case=False, na=False)]
         else:
-            df_r_display = df_rev
+            df_r_disp = df_rev
             
-        out_r = df_r_display[['employee_nik', 'nama', 'departemen', 'atasan_assessed', 'rekan_assessed', 'bawahan_assessed', 'pribadi_assessed', 'total_assessed', 'total_pct', 'status']].copy()
+        out_r = df_r_disp[['employee_nik', 'nama', 'departemen', 'atasan_assessed', 'rekan_assessed', 'bawahan_assessed', 'pribadi_assessed', 'total_assessed', 'total_pct', 'status']].copy()
         out_r.columns = ['NIK', 'Nama', 'Departemen', 'Atasan', 'Rekan', 'Bawahan', 'Pribadi', 'Total Assessed', '% Selesai', 'Status']
         st.dataframe(out_r, use_container_width=True, hide_index=True)
     else:
         st.info("Belum ada data Review 360 untuk periode ini.")
 
 # ----------------- 5. OVERVIEW MASTER KARYAWAN -----------------
-elif menu == "📈 Overview Master Karyawan":
-    st.markdown('<div class="main-header">📈 Overview Master Data Karyawan</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Visualisasi & Struktur Master Data Karyawan Aktif PT Petrokimia Gresik</div>', unsafe_allow_html=True)
+elif menu == "Overview Master Karyawan":
+    st.markdown("""
+        <div class="top-header-container">
+            <div>
+                <h1 class="page-title">Overview Master Data Karyawan</h1>
+                <div class="page-desc">Visualisasi dan struktur demografi seluruh data karyawan aktif PT Petrokimia Gresik</div>
+            </div>
+            <div class="period-badge">
+                <span>🏢</span> Status: Master Bersih
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
     df_m = query_df("SELECT * FROM employees_master")
     total_m = len(df_m)
@@ -380,39 +724,91 @@ elif menu == "📈 Overview Master Karyawan":
     purna = int((df_m['kategori'] == 'PURNA').sum())
     pi = int((df_m['kategori'] == 'PI').sum())
     
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Total Master", f"{total_m:,}")
-    c2.metric("Karyawan Aktif", f"{aktif:,}")
-    c3.metric("PKWT", f"{pkwt:,}")
-    c4.metric("Purna Tugas", f"{purna:,}")
-    c5.metric("Perbantuan (PI)", f"{pi:,}")
-    
-    st.markdown("---")
+    st.markdown(f"""
+        <div class="kpi-grid">
+            <div class="kpi-card kpi-default">
+                <div class="kpi-header"><span class="kpi-label">Total Master</span></div>
+                <div class="kpi-value">{total_m:,}</div>
+                <div class="kpi-footer"><span style="color: #94a3b8;">Karyawan</span></div>
+            </div>
+            <div class="kpi-card kpi-success">
+                <div class="kpi-header"><span class="kpi-label">Karyawan Aktif</span></div>
+                <div class="kpi-value">{aktif:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(aktif/total_m*100 if total_m else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+            <div class="kpi-card kpi-info">
+                <div class="kpi-header"><span class="kpi-label">PKWT</span></div>
+                <div class="kpi-value">{pkwt:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(pkwt/total_m*100 if total_m else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+            <div class="kpi-card kpi-warning">
+                <div class="kpi-header"><span class="kpi-label">Purna Tugas</span></div>
+                <div class="kpi-value">{purna:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(purna/total_m*100 if total_m else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+            <div class="kpi-card kpi-purple">
+                <div class="kpi-header"><span class="kpi-label">Perbantuan (PI)</span></div>
+                <div class="kpi-value">{pi:,}</div>
+                <div class="kpi-footer"><span class="kpi-pct">{(pi/total_m*100 if total_m else 0):.1f}%</span> <span style="color: #94a3b8;">of Total</span></div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
     col_m1, col_m2 = st.columns([1, 2])
     with col_m1:
-        st.subheader("Kategori Karyawan")
-        fig_m = px.pie(
+        st.markdown("""
+            <div class="custom-card-title">Kategori Karyawan</div>
+            <div class="custom-card-subtitle">Distribusi status kepegawaian</div>
+        """, unsafe_allow_html=True)
+        fig_m = create_styled_donut(
             values=[aktif, pkwt, purna, pi],
-            names=['Aktif', 'PKWT', 'Purna Tugas', 'PI'],
-            color_discrete_sequence=['#10b981', '#0ea5e9', '#f59e0b', '#8b5cf6'],
-            hole=0.5
+            labels=['Aktif', 'PKWT', 'Purna Tugas', 'PI'],
+            colors=['#10b981', '#0ea5e9', '#f59e0b', '#8b5cf6'],
+            center_pct=f"{round(aktif/total_m*100, 1)}",
+            center_label="AKTIF",
+            center_sub=f"{aktif:,} / {total_m:,} Karyawan"
         )
-        fig_m.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=320)
         st.plotly_chart(fig_m, use_container_width=True)
         
     with col_m2:
-        st.subheader("Distribusi Per Kompartemen Teratas")
+        st.markdown("""
+            <div class="custom-card-title">Distribusi Per Kompartemen Teratas</div>
+            <div class="custom-card-subtitle">Jumlah karyawan per unit kompartemen</div>
+        """, unsafe_allow_html=True)
         komp_df = df_m['kompartemen'].fillna('Lainnya').value_counts().reset_index()
         komp_df.columns = ['Kompartemen', 'Jumlah']
-        fig_bar = px.bar(komp_df.head(10), x="Jumlah", y="Kompartemen", orientation='h', color="Jumlah", color_continuous_scale="Viridis")
-        fig_bar.update_layout(yaxis=dict(autorange="reversed"), margin=dict(t=10, b=10, l=10, r=10), height=320)
+        fig_bar = go.Figure(data=[go.Bar(
+            x=komp_df['Jumlah'].head(8),
+            y=komp_df['Kompartemen'].head(8),
+            orientation='h',
+            marker=dict(color='#38bdf8', line=dict(color='#0f172a', width=1)),
+            text=komp_df['Jumlah'].head(8),
+            textposition='auto'
+        )])
+        fig_bar.update_layout(
+            yaxis=dict(autorange="reversed"),
+            margin=dict(t=10, b=10, l=10, r=10),
+            height=320,
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(color="#94a3b8"),
+            xaxis=dict(gridcolor="rgba(255,255,255,0.05)")
+        )
         st.plotly_chart(fig_bar, use_container_width=True)
 
 # ----------------- 6. DATA PERLU REVIEW -----------------
-elif menu == "⚠️ Data Perlu Review":
-    st.markdown('<div class="main-header">⚠️ Data Perlu Review (Orphan Rows)</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Daftar baris laporan kinerja yang NIK-nya tidak ditemukan pada Master Data Karyawan Aktif</div>', unsafe_allow_html=True)
+elif menu == "Data Perlu Review":
+    st.markdown("""
+        <div class="top-header-container">
+            <div>
+                <h1 class="page-title">Data Perlu Review (Orphan Rows)</h1>
+                <div class="page-desc">Daftar baris laporan kinerja yang NIK-nya tidak ditemukan pada Master Data Karyawan Aktif</div>
+            </div>
+            <div class="period-badge">
+                <span>⚠️</span> Audit & Rekonsiliasi NIK
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
     df_orphans = query_df("""
         SELECT o.id, o.row_number, o.nik, o.nama, o.departemen, u.jenis_file, p.triwulan, p.tahun
@@ -444,9 +840,18 @@ elif menu == "⚠️ Data Perlu Review":
         st.success("Bagus! Tidak ada data orphan yang perlu direview pada filter ini.")
 
 # ----------------- 7. RIWAYAT AKTIVITAS -----------------
-elif menu == "📜 Riwayat Aktivitas":
-    st.markdown('<div class="main-header">📜 Riwayat Aktivitas & Sinkronisasi</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Log historis aktivitas unggah, sinkronisasi, dan pengelolaan data kinerja</div>', unsafe_allow_html=True)
+elif menu == "Riwayat Aktivitas":
+    st.markdown("""
+        <div class="top-header-container">
+            <div>
+                <h1 class="page-title">Riwayat Aktivitas & Sinkronisasi</h1>
+                <div class="page-desc">Log historis aktivitas unggah, sinkronisasi, dan pengelolaan data kinerja</div>
+            </div>
+            <div class="period-badge">
+                <span>📜</span> Audit Trail
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
     df_u = query_df("SELECT * FROM uploads ORDER BY id DESC LIMIT 15")
     
