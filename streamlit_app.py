@@ -1,22 +1,12 @@
 import os
 import sys
 import json
+import sqlite3
 import datetime
 import pandas as pd
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
-from sqlalchemy import create_engine, func
-from sqlalchemy.orm import sessionmaker
-
-# Setup path for backend imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))
-from app.models.models import (
-    Base, Period, EmployeeMaster, Upload, UploadOrphanRow,
-    PerformancePlanning, PerformanceCoaching, PerformanceAppraisal, PerformanceReview360
-)
-from app.services.master_pipeline import MasterDataPipeline, clean_nik, clean_str
-from app.services.report_pipeline import ReportDataPipeline
 
 # Configure Streamlit page
 st.set_page_config(
@@ -26,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for styling
+# Custom Styling
 st.markdown("""
 <style>
     .main-header {
@@ -44,20 +34,14 @@ st.markdown("""
         background: #ffffff;
         border: 1px solid #e2e8f0;
         border-radius: 12px;
-        padding: 16px;
+        padding: 14px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
-    .badge-approved { background-color: #dcfce7; color: #15803d; padding: 2px 8px; border-radius: 6px; font-weight: 600; font-size: 11px; }
-    .badge-waiting { background-color: #fef9c3; color: #854d0e; padding: 2px 8px; border-radius: 6px; font-weight: 600; font-size: 11px; }
-    .badge-drafted { background-color: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 6px; font-weight: 600; font-size: 11px; }
-    .badge-danger { background-color: #fee2e2; color: #b91c1c; padding: 2px 8px; border-radius: 6px; font-weight: 600; font-size: 11px; }
 </style>
 """, unsafe_allow_html=True)
 
-# Database connection
-@st.cache_resource
-def get_engine():
-    # Check streamlit secrets, env, or fallback to SQLite pms.db
+# Database Connection Helper
+def get_db_connection():
     db_url = None
     try:
         if "DATABASE_URL" in st.secrets:
@@ -68,34 +52,47 @@ def get_engine():
     if not db_url:
         db_url = os.environ.get("DATABASE_URL")
         
-    if not db_url or "localhost" in db_url or "127.0.0.1" in db_url:
-        # Fallback to local SQLite file
-        sqlite_path = os.path.join(os.path.dirname(__file__), "pms.db")
-        db_url = f"sqlite:///{sqlite_path}"
+    if db_url and ("postgresql" in db_url or "postgres" in db_url) and "localhost" not in db_url:
+        try:
+            from sqlalchemy import create_engine
+            engine = create_engine(db_url, pool_pre_ping=True)
+            return engine
+        except Exception:
+            pass
 
-    if db_url.startswith("sqlite"):
-        engine = create_engine(db_url, connect_args={"check_same_thread": False})
-    else:
-        engine = create_engine(db_url, pool_pre_ping=True)
-        
-    Base.metadata.create_all(bind=engine)
-    return engine
+    # Default to local SQLite pms.db
+    sqlite_path = os.path.join(os.path.dirname(__file__), "pms.db")
+    if not os.path.exists(sqlite_path):
+        sqlite_path = os.path.join(os.path.dirname(__file__), "backend", "pms.db")
+    
+    return sqlite3.connect(sqlite_path, check_same_thread=False)
 
-engine = get_engine()
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+conn = get_db_connection()
 
-def get_db_session():
-    return SessionLocal()
+def query_df(sql, params=None):
+    try:
+        if isinstance(conn, sqlite3.Connection):
+            return pd.read_sql_query(sql, conn, params=params)
+        else:
+            return pd.read_sql_query(sql, conn, params=params)
+    except Exception as e:
+        st.error(f"Error querying database: {e}")
+        return pd.DataFrame()
 
 # ----------------- SIDEBAR -----------------
 with st.sidebar:
-    st.image("logo-pg.jpg", use_container_width=True) if os.path.exists("logo-pg.jpg") else st.title("🏢 PMS Petrokimia")
+    if os.path.exists("logo-pg.jpg"):
+        st.image("logo-pg.jpg", use_container_width=True)
+    elif os.path.exists("frontend/public/logo-pg.jpg"):
+        st.image("frontend/public/logo-pg.jpg", use_container_width=True)
+    else:
+        st.title("🏢 PMS Petrokimia")
+        
     st.markdown("### **Performance Management**")
     st.caption("PT Petrokimia Gresik Tbk")
-    
     st.markdown("---")
     
-    # Year & Triwulan Filters
+    # Filter Periode
     col_yr, col_tw = st.columns(2)
     with col_yr:
         sel_year = st.selectbox("Tahun", [2026, 2027], index=0)
@@ -104,7 +101,6 @@ with st.sidebar:
         
     st.markdown("---")
     
-    # Navigation Menu
     menu = st.radio(
         "Menu Navigasi",
         [
@@ -119,33 +115,31 @@ with st.sidebar:
     )
     
     st.markdown("---")
-    st.caption(f"Aktif: **Tahun {sel_year} TW {sel_tw}**")
+    st.caption(f"Periode Aktif: **Tahun {sel_year} TW {sel_tw}**")
 
 # Get Period ID
-db = get_db_session()
-period = db.query(Period).filter(Period.tahun == sel_year, Period.triwulan == sel_tw).first()
-if not period:
-    period = Period(tahun=sel_year, triwulan=sel_tw)
-    db.add(period)
-    db.commit()
-    db.refresh(period)
-
-period_id = period.id
+df_period = query_df("SELECT id FROM periods WHERE tahun = ? AND triwulan = ?", (sel_year, sel_tw))
+if not df_period.empty:
+    period_id = int(df_period.iloc[0]['id'])
+else:
+    period_id = 2 # Fallback to 2026 TW2
 
 # ----------------- 1. PERFORMANCE PLANNING -----------------
 if menu == "🎯 Performance Planning":
     st.markdown('<div class="main-header">🎯 Performance Planning</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sub-header">Monitoring Perencanaan KPI Karyawan — Periode Tahun {sel_year} TW {sel_tw}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sub-header">Monitoring Perencanaan KPI Karyawan & Unit Kerja — Periode Tahun {sel_year} TW {sel_tw}</div>', unsafe_allow_html=True)
     
-    # Query data
-    plannings = db.query(PerformancePlanning).filter(PerformancePlanning.period_id == period_id).all()
-    total = len(plannings)
+    df_plan = query_df("SELECT * FROM performance_planning WHERE period_id = ?", (period_id,))
+    total = len(df_plan)
     
-    approved = sum(1 for p in plannings if p.status_individu.lower() == 'approved')
-    waiting = sum(1 for p in plannings if 'wait' in p.status_individu.lower())
-    drafted = sum(1 for p in plannings if 'draft' in p.status_individu.lower())
-    belum = sum(1 for p in plannings if 'belum' in p.status_individu.lower() or 'not' in p.status_individu.lower())
-    
+    if total > 0:
+        approved = int((df_plan['status_individu'].str.lower() == 'approved').sum())
+        waiting = int(df_plan['status_individu'].str.lower().str.contains('wait').sum())
+        drafted = int(df_plan['status_individu'].str.lower().str.contains('draft').sum())
+        belum = int(df_plan['status_individu'].str.lower().str.contains('belum|not').sum())
+    else:
+        approved = waiting = drafted = belum = 0
+        
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Total Karyawan", f"{total:,}")
     c2.metric("Approved", f"{approved:,}", f"{(approved/total*100 if total else 0):.1f}%")
@@ -158,7 +152,7 @@ if menu == "🎯 Performance Planning":
     if total > 0:
         col_chart, col_dept = st.columns([1, 2])
         with col_chart:
-            st.subheader("Distribusi Status")
+            st.subheader("Distribusi Status KPI")
             fig = px.pie(
                 values=[approved, waiting, drafted, belum],
                 names=['Approved', 'Waiting Approval', 'Drafted', 'Not Yet Submitted'],
@@ -170,39 +164,27 @@ if menu == "🎯 Performance Planning":
             
         with col_dept:
             st.subheader("Ringkasan Per Departemen")
-            dept_data = []
-            depts = set(p.departemen for p in plannings if p.departemen)
-            for d in depts:
-                dept_items = [p for p in plannings if p.departemen == d]
-                app_count = sum(1 for p in dept_items if p.status_individu.lower() == 'approved')
-                dept_data.append({
-                    "Departemen": d,
-                    "Total": len(dept_items),
-                    "Approved": app_count,
-                    "Waiting": sum(1 for p in dept_items if 'wait' in p.status_individu.lower()),
-                    "Drafted": sum(1 for p in dept_items if 'draft' in p.status_individu.lower()),
-                    "Belum": sum(1 for p in dept_items if 'belum' in p.status_individu.lower() or 'not' in p.status_individu.lower()),
-                    "% Approved": round(app_count / len(dept_items) * 100, 1)
-                })
-            df_dept = pd.DataFrame(dept_data).sort_values(by="% Approved", ascending=False)
-            st.dataframe(df_dept, use_container_width=True, hide_index=True)
+            df_plan['departemen_clean'] = df_plan['departemen'].fillna('Tanpa Departemen')
+            dept_summary = df_plan.groupby('departemen_clean').agg(
+                Total=('id', 'count'),
+                Approved=('status_individu', lambda s: (s.str.lower() == 'approved').sum()),
+                Drafted=('status_individu', lambda s: s.str.lower().str.contains('draft').sum()),
+                Belum=('status_individu', lambda s: s.str.lower().str.contains('belum|not').sum())
+            ).reset_index()
+            dept_summary['% Approved'] = (dept_summary['Approved'] / dept_summary['Total'] * 100).round(1)
+            dept_summary = dept_summary.sort_values(by='% Approved', ascending=False)
+            st.dataframe(dept_summary, use_container_width=True, hide_index=True)
             
         st.subheader("Daftar Detail Karyawan")
-        search_kw = st.text_input("🔍 Cari Nama atau NIK Karyawan", "")
-        plan_rows = [
-            {
-                "NIK": p.employee_nik,
-                "Nama": p.nama,
-                "Departemen": p.departemen or "-",
-                "Status": p.status_individu,
-                "Submit Date": p.submitted_date or "-",
-                "Approved Date": p.approved_date or "-",
-                "Delegasi": "Ya" if p.is_delegasi else "Tidak"
-            }
-            for p in plannings
-            if not search_kw or search_kw.lower() in p.nama.lower() or search_kw in p.employee_nik
-        ]
-        st.dataframe(pd.DataFrame(plan_rows), use_container_width=True, hide_index=True)
+        search_p = st.text_input("🔍 Cari Nama atau NIK Karyawan", "")
+        if search_p:
+            df_display = df_plan[df_plan['nama'].str.contains(search_p, case=False, na=False) | df_plan['employee_nik'].str.contains(search_p, na=False)]
+        else:
+            df_display = df_plan
+            
+        out_table = df_display[['employee_nik', 'nama', 'departemen', 'status_individu', 'submitted_date', 'approved_date']].copy()
+        out_table.columns = ['NIK', 'Nama', 'Departemen', 'Status', 'Tgl Pengajuan', 'Tgl Disetujui']
+        st.dataframe(out_table, use_container_width=True, hide_index=True)
     else:
         st.info("Belum ada data Performance Planning untuk periode ini.")
 
@@ -211,20 +193,22 @@ elif menu == "👥 Performance Coaching":
     st.markdown('<div class="main-header">👥 Performance Coaching</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="sub-header">Monitoring Coaching & Bimbingan Superior — Periode Tahun {sel_year} TW {sel_tw}</div>', unsafe_allow_html=True)
     
-    coachings = db.query(PerformanceCoaching).filter(PerformanceCoaching.period_id == period_id).all()
-    total = len(coachings)
+    df_coach = query_df("SELECT * FROM performance_coaching WHERE period_id = ?", (period_id,))
+    total = len(df_coach)
     
-    approved = sum(1 for c in coachings if c.status == 'Approved')
-    waiting = sum(1 for c in coachings if 'Wait' in c.status)
-    drafted = sum(1 for c in coachings if 'Draft' in c.status)
-    ny = sum(1 for c in coachings if 'Not' in c.status or 'Belum' in c.status)
-    
-    c1, c2, c3, c4, c5 = st.columns(5)
+    if total > 0:
+        approved = int((df_coach['status'].str.lower() == 'approved').sum())
+        drafted = int(df_coach['status'].str.lower().str.contains('draft').sum())
+        ny = int(df_coach['status'].str.lower().str.contains('not|belum').sum())
+        waiting = total - approved - drafted - ny
+    else:
+        approved = drafted = ny = waiting = 0
+        
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Karyawan", f"{total:,}")
     c2.metric("Approved", f"{approved:,}", f"{(approved/total*100 if total else 0):.1f}%")
-    c3.metric("Waiting Approval", f"{waiting:,}", f"{(waiting/total*100 if total else 0):.1f}%")
-    c4.metric("Drafted", f"{drafted:,}", f"{(drafted/total*100 if total else 0):.1f}%")
-    c5.metric("Not Yet Submitted", f"{ny:,}", f"{(ny/total*100 if total else 0):.1f}%")
+    c3.metric("Drafted", f"{drafted:,}", f"{(drafted/total*100 if total else 0):.1f}%")
+    c4.metric("Not Yet Submitted", f"{ny:,}", f"{(ny/total*100 if total else 0):.1f}%")
     
     st.markdown("---")
     
@@ -233,46 +217,41 @@ elif menu == "👥 Performance Coaching":
         with col_c1:
             st.subheader("Distribusi Status Coaching")
             fig = px.pie(
-                values=[approved, waiting, drafted, ny],
-                names=['Approved', 'Waiting Approval', 'Drafted', 'Not Yet Submitted'],
-                color_discrete_sequence=['#10b981', '#f59e0b', '#0ea5e9', '#ef4444'],
+                values=[approved, drafted, ny],
+                names=['Approved', 'Drafted', 'Not Yet Submitted'],
+                color_discrete_sequence=['#10b981', '#0ea5e9', '#ef4444'],
                 hole=0.6
             )
             fig.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=300)
             st.plotly_chart(fig, use_container_width=True)
             
         with col_c2:
-            st.subheader("Ringkasan Coaching Per Departemen")
-            c_dept_data = []
-            for d in set(c.departemen for c in coachings if c.departemen):
-                items = [c for c in coachings if c.departemen == d]
-                appr = sum(1 for c in items if c.status == 'Approved')
-                c_dept_data.append({
-                    "Departemen": d,
-                    "Total": len(items),
-                    "Approved": appr,
-                    "Drafted": sum(1 for c in items if 'Draft' in c.status),
-                    "Not Submitted": sum(1 for c in items if 'Not' in c.status or 'Belum' in c.status),
-                    "% Approved": round(appr / len(items) * 100, 1)
-                })
-            st.dataframe(pd.DataFrame(c_dept_data).sort_values(by="% Approved", ascending=False), use_container_width=True, hide_index=True)
+            st.subheader("Ringkasan Per Departemen")
+            df_coach['departemen_clean'] = df_coach['departemen'].fillna('Tanpa Departemen')
+            c_dept_summary = df_coach.groupby('departemen_clean').agg(
+                Total=('id', 'count'),
+                Approved=('status', lambda s: (s.str.lower() == 'approved').sum()),
+                Drafted=('status', lambda s: s.str.lower().str.contains('draft').sum()),
+                Not_Submitted=('status', lambda s: s.str.lower().str.contains('not|belum').sum())
+            ).reset_index()
+            c_dept_summary['% Approved'] = (c_dept_summary['Approved'] / c_dept_summary['Total'] * 100).round(1)
+            c_dept_summary = c_dept_summary.sort_values(by='% Approved', ascending=False)
+            st.dataframe(c_dept_summary, use_container_width=True, hide_index=True)
             
-        st.subheader("Daftar Detail Coaching Karyawan & Atasan")
+        st.subheader("Daftar Detail Coaching Karyawan & Superior")
         search_c = st.text_input("🔍 Cari Karyawan, NIK, atau Atasan", "")
-        c_rows = [
-            {
-                "NIK": c.employee_nik,
-                "Nama": c.nama,
-                "Departemen": c.departemen or "-",
-                "Superior": f"{c.superior_nama or '-'} ({c.superior_nik or '-'})",
-                "Jml Coaching": c.jumlah_coaching or 0,
-                "Tgl Coaching": c.tanggal_coaching or "-",
-                "Status": c.status
-            }
-            for c in coachings
-            if not search_c or search_c.lower() in c.nama.lower() or search_c in c.employee_nik or (c.superior_nama and search_c.lower() in c.superior_nama.lower())
-        ]
-        st.dataframe(pd.DataFrame(c_rows), use_container_width=True, hide_index=True)
+        if search_c:
+            df_c_display = df_coach[
+                df_coach['nama'].str.contains(search_c, case=False, na=False) |
+                df_coach['employee_nik'].str.contains(search_c, na=False) |
+                df_coach['superior_nama'].str.contains(search_c, case=False, na=False)
+            ]
+        else:
+            df_c_display = df_coach
+            
+        out_c = df_c_display[['employee_nik', 'nama', 'departemen', 'superior_nama', 'superior_nik', 'jumlah_coaching', 'status']].copy()
+        out_c.columns = ['NIK', 'Nama Karyawan', 'Departemen', 'Nama Atasan', 'NIK Atasan', 'Jml Coaching', 'Status']
+        st.dataframe(out_c, use_container_width=True, hide_index=True)
     else:
         st.info("Belum ada data Performance Coaching untuk periode ini.")
 
@@ -281,14 +260,17 @@ elif menu == "📊 Performance Appraisal":
     st.markdown('<div class="main-header">📊 Performance Appraisal</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="sub-header">Evaluasi Penilaian Kinerja Karyawan — Periode Tahun {sel_year} TW {sel_tw}</div>', unsafe_allow_html=True)
     
-    appraisals = db.query(PerformanceAppraisal).filter(PerformanceAppraisal.period_id == period_id).all()
-    total = len(appraisals)
+    df_app = query_df("SELECT * FROM performance_appraisal WHERE period_id = ?", (period_id,))
+    total = len(df_app)
     
-    approved = sum(1 for a in appraisals if a.status.lower() == 'approved')
-    waiting = sum(1 for a in appraisals if 'wait' in a.status.lower())
-    declined = sum(1 for a in appraisals if 'decline' in a.status.lower() or 'tolak' in a.status.lower())
-    belum = sum(1 for a in appraisals if 'belum' in a.status.lower() or 'not' in a.status.lower())
-    
+    if total > 0:
+        approved = int((df_app['status'].str.lower() == 'approved').sum())
+        waiting = int(df_app['status'].str.lower().str.contains('wait').sum())
+        declined = int(df_app['status'].str.lower().str.contains('decline|tolak').sum())
+        belum = int(df_app['status'].str.lower().str.contains('belum|not|ny').sum())
+    else:
+        approved = waiting = declined = belum = 0
+        
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Total Karyawan", f"{total:,}")
     c2.metric("Approved", f"{approved:,}", f"{(approved/total*100 if total else 0):.1f}%")
@@ -313,11 +295,11 @@ elif menu == "📊 Performance Appraisal":
             
         with col_a2:
             st.subheader("Distribusi Skor Kinerja (Score Buckets)")
-            scores = [float(a.total_score) for a in appraisals if a.total_score is not None]
-            b_u85 = sum(1 for s in scores if s < 85)
-            b_85_95 = sum(1 for s in scores if 85 <= s <= 95)
-            b_96_100 = sum(1 for s in scores if 95 < s <= 100)
-            b_a100 = sum(1 for s in scores if s > 100)
+            scores = pd.to_numeric(df_app['total_score'], errors='coerce').dropna()
+            b_u85 = int((scores < 85).sum())
+            b_85_95 = int(((scores >= 85) & (scores <= 95)).sum())
+            b_96_100 = int(((scores > 95) & (scores <= 100)).sum())
+            b_a100 = int((scores > 100).sum())
             
             fig_bar = px.bar(
                 x=['< 85', '85 - 95', '96 - 100', '> 100'],
@@ -329,34 +311,26 @@ elif menu == "📊 Performance Appraisal":
             fig_bar.update_layout(showlegend=False, margin=dict(t=10, b=10, l=10, r=10), height=280)
             st.plotly_chart(fig_bar, use_container_width=True)
             
-        st.subheader("Rata-rata Skor Penilaian per Departemen")
-        dept_scores = []
-        for d in set(a.departemen for a in appraisals if a.departemen):
-            d_items = [a for a in appraisals if a.departemen == d and a.total_score is not None]
-            if d_items:
-                avg_sc = sum(float(a.total_score) for a in d_items) / len(d_items)
-                dept_scores.append({
-                    "Departemen": d,
-                    "Jml Ternilai": len(d_items),
-                    "Rata-rata Skor": round(avg_sc, 2)
-                })
-        st.dataframe(pd.DataFrame(dept_scores).sort_values(by="Rata-rata Skor", ascending=False), use_container_width=True, hide_index=True)
+        st.subheader("Rata-rata Skor per Departemen")
+        df_app['score_num'] = pd.to_numeric(df_app['total_score'], errors='coerce')
+        dept_app_summary = df_app[df_app['score_num'].notna()].groupby('departemen').agg(
+            Jml_Ternilai=('id', 'count'),
+            Rata_Rata_Skor=('score_num', 'mean')
+        ).reset_index()
+        dept_app_summary['Rata_Rata_Skor'] = dept_app_summary['Rata_Rata_Skor'].round(2)
+        dept_app_summary = dept_app_summary.sort_values(by='Rata_Rata_Skor', ascending=False)
+        st.dataframe(dept_app_summary, use_container_width=True, hide_index=True)
         
         st.subheader("Daftar Detail Penilaian Karyawan")
         search_a = st.text_input("🔍 Cari Karyawan atau NIK", "")
-        a_rows = [
-            {
-                "NIK": a.employee_nik,
-                "Nama": a.nama,
-                "Departemen": a.departemen or "-",
-                "Status": a.status,
-                "Tgl Pengajuan": a.submitted_date or "-",
-                "Total Skor": float(a.total_score) if a.total_score is not None else "-"
-            }
-            for a in appraisals
-            if not search_a or search_a.lower() in a.nama.lower() or search_a in a.employee_nik
-        ]
-        st.dataframe(pd.DataFrame(a_rows), use_container_width=True, hide_index=True)
+        if search_a:
+            df_a_display = df_app[df_app['nama'].str.contains(search_a, case=False, na=False) | df_app['employee_nik'].str.contains(search_a, na=False)]
+        else:
+            df_a_display = df_app
+            
+        out_a = df_a_display[['employee_nik', 'nama', 'departemen', 'status', 'submitted_date', 'total_score']].copy()
+        out_a.columns = ['NIK', 'Nama Karyawan', 'Departemen', 'Status', 'Tgl Pengajuan', 'Total Skor']
+        st.dataframe(out_a, use_container_width=True, hide_index=True)
     else:
         st.info("Belum ada data Performance Appraisal untuk periode ini.")
 
@@ -365,43 +339,31 @@ elif menu == "🧭 Performance Review (360)":
     st.markdown('<div class="main-header">🧭 Performance Review (360)</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="sub-header">Monitoring Evaluasi Umpan Balik 360 Derajat — Periode Tahun {sel_year} TW {sel_tw}</div>', unsafe_allow_html=True)
     
-    reviews = db.query(PerformanceReview360).filter(PerformanceReview360.period_id == period_id).all()
-    total = len(reviews)
+    df_rev = query_df("SELECT * FROM performance_review360 WHERE period_id = ?", (period_id,))
+    total = len(df_rev)
     
-    all_done = sum(1 for r in reviews if r.status == 'All Done')
-    almost = sum(1 for r in reviews if r.status == 'Almost Done')
-    ny_done = sum(1 for r in reviews if r.status == 'NY Done')
-    ny_submit = sum(1 for r in reviews if r.status == 'NY Submitted')
+    all_done = int((df_rev['status'] == 'All Done').sum()) if total else 0
+    almost = int((df_rev['status'] == 'Almost Done').sum()) if total else 0
+    ny = total - all_done - almost if total else 0
     
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3 = st.columns(3)
     c1.metric("Total Karyawan", f"{total:,}")
-    c2.metric("All Done", f"{all_done:,}", f"{(all_done/total*100 if total else 0):.1f}%")
-    c3.metric("Almost Done", f"{almost:,}", f"{(almost/total*100 if total else 0):.1f}%")
-    c4.metric("NY Done", f"{ny_done:,}", f"{(ny_done/total*100 if total else 0):.1f}%")
-    c5.metric("NY Submitted", f"{ny_submit:,}", f"{(ny_submit/total*100 if total else 0):.1f}%")
+    c2.metric("All Done (100% Selesai)", f"{all_done:,}", f"{(all_done/total*100 if total else 0):.1f}%")
+    c3.metric("Dalam Proses / NY Done", f"{ny:,}", f"{(ny/total*100 if total else 0):.1f}%")
     
     st.markdown("---")
     
     if total > 0:
         st.subheader("Daftar Penilaian 360 Karyawan")
         search_r = st.text_input("🔍 Cari Karyawan atau NIK", "")
-        r_rows = [
-            {
-                "NIK": r.employee_nik,
-                "Nama": r.nama,
-                "Departemen": r.departemen or "-",
-                "Atasan": r.atasan_assessed or "-",
-                "Rekan": r.rekan_assessed or "-",
-                "Bawahan": r.bawahan_assessed or "-",
-                "Pribadi": r.pribadi_assessed or "-",
-                "Total Dinilai": r.total_assessed or "-",
-                "% Selesai": f"{float(r.total_pct):.1f}%" if r.total_pct else "-",
-                "Status": r.status
-            }
-            for r in reviews
-            if not search_r or search_r.lower() in r.nama.lower() or search_r in r.employee_nik
-        ]
-        st.dataframe(pd.DataFrame(r_rows), use_container_width=True, hide_index=True)
+        if search_r:
+            df_r_display = df_rev[df_rev['nama'].str.contains(search_r, case=False, na=False) | df_rev['employee_nik'].str.contains(search_r, na=False)]
+        else:
+            df_r_display = df_rev
+            
+        out_r = df_r_display[['employee_nik', 'nama', 'departemen', 'atasan_assessed', 'rekan_assessed', 'bawahan_assessed', 'pribadi_assessed', 'total_assessed', 'total_pct', 'status']].copy()
+        out_r.columns = ['NIK', 'Nama', 'Departemen', 'Atasan', 'Rekan', 'Bawahan', 'Pribadi', 'Total Assessed', '% Selesai', 'Status']
+        st.dataframe(out_r, use_container_width=True, hide_index=True)
     else:
         st.info("Belum ada data Review 360 untuk periode ini.")
 
@@ -410,11 +372,13 @@ elif menu == "📈 Overview Master Karyawan":
     st.markdown('<div class="main-header">📈 Overview Master Data Karyawan</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Visualisasi & Struktur Master Data Karyawan Aktif PT Petrokimia Gresik</div>', unsafe_allow_html=True)
     
-    total_m = db.query(EmployeeMaster).count()
-    aktif = db.query(EmployeeMaster).filter(EmployeeMaster.kategori == 'AKTIF').count()
-    pkwt = db.query(EmployeeMaster).filter(EmployeeMaster.kategori == 'PKWT').count()
-    purna = db.query(EmployeeMaster).filter(EmployeeMaster.kategori == 'PURNA').count()
-    pi = db.query(EmployeeMaster).filter(EmployeeMaster.kategori == 'PI').count()
+    df_m = query_df("SELECT * FROM employees_master")
+    total_m = len(df_m)
+    
+    aktif = int((df_m['kategori'] == 'AKTIF').sum())
+    pkwt = int((df_m['kategori'] == 'PKWT').sum())
+    purna = int((df_m['kategori'] == 'PURNA').sum())
+    pi = int((df_m['kategori'] == 'PI').sum())
     
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Total Master", f"{total_m:,}")
@@ -434,14 +398,15 @@ elif menu == "📈 Overview Master Karyawan":
             color_discrete_sequence=['#10b981', '#0ea5e9', '#f59e0b', '#8b5cf6'],
             hole=0.5
         )
+        fig_m.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=320)
         st.plotly_chart(fig_m, use_container_width=True)
         
     with col_m2:
-        st.subheader("Distribusi Per Kompartemen")
-        komp_counts = db.query(EmployeeMaster.kompartemen, func.count(EmployeeMaster.id)).group_by(EmployeeMaster.kompartemen).order_by(func.count(EmployeeMaster.id).desc()).all()
-        df_komp = pd.DataFrame([{"Kompartemen": k or "Lainnya", "Jumlah": cnt} for k, cnt in komp_counts if cnt > 10])
-        fig_bar = px.bar(df_komp, x="Jumlah", y="Kompartemen", orientation='h', color="Jumlah", color_continuous_scale="Viridis")
-        fig_bar.update_layout(yaxis=dict(autorange="reversed"), height=350)
+        st.subheader("Distribusi Per Kompartemen Teratas")
+        komp_df = df_m['kompartemen'].fillna('Lainnya').value_counts().reset_index()
+        komp_df.columns = ['Kompartemen', 'Jumlah']
+        fig_bar = px.bar(komp_df.head(10), x="Jumlah", y="Kompartemen", orientation='h', color="Jumlah", color_continuous_scale="Viridis")
+        fig_bar.update_layout(yaxis=dict(autorange="reversed"), margin=dict(t=10, b=10, l=10, r=10), height=320)
         st.plotly_chart(fig_bar, use_container_width=True)
 
 # ----------------- 6. DATA PERLU REVIEW -----------------
@@ -449,61 +414,48 @@ elif menu == "⚠️ Data Perlu Review":
     st.markdown('<div class="main-header">⚠️ Data Perlu Review (Orphan Rows)</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Daftar baris laporan kinerja yang NIK-nya tidak ditemukan pada Master Data Karyawan Aktif</div>', unsafe_allow_html=True)
     
-    orphans = db.query(UploadOrphanRow, Upload.jenis_file).join(Upload, UploadOrphanRow.upload_id == Upload.id).all()
+    df_orphans = query_df("""
+        SELECT o.id, o.row_number, o.nik, o.nama, o.departemen, u.jenis_file, p.triwulan, p.tahun
+        FROM upload_orphan_rows o
+        JOIN uploads u ON o.upload_id = u.id
+        LEFT JOIN periods p ON u.period_id = p.id
+        ORDER BY o.id DESC
+    """)
     
-    # Filter module
-    mod_filter = st.selectbox("Filter Modul", ["Semua Modul", "KPI Planning", "Performance Coaching", "Performance Appraisal", "Review 360"])
+    col_f1, col_f2 = st.columns([1, 1])
+    with col_f1:
+        mod_sel = st.selectbox("Filter Modul", ["Semua Modul", "kpi_planning", "coaching", "appraisal", "review360"])
+    with col_f2:
+        tw_sel = st.selectbox("Filter TW", ["Semua TW", "1", "2", "3", "4"])
+        
+    df_f = df_orphans.copy()
+    if mod_sel != "Semua Modul":
+        df_f = df_f[df_f['jenis_file'] == mod_sel]
+    if tw_sel != "Semua TW":
+        df_f = df_f[df_f['triwulan'] == int(tw_sel)]
+        
+    st.metric("Total Data Perlu Review", len(df_f))
     
-    key_map = {
-        "KPI Planning": "kpi_planning",
-        "Performance Coaching": "coaching",
-        "Performance Appraisal": "appraisal",
-        "Review 360": "review360"
-    }
-    
-    filtered_orphans = [
-        o for o, jf in orphans
-        if mod_filter == "Semua Modul" or jf == key_map.get(mod_filter)
-    ]
-    
-    st.metric("Total Data Perlu Review", len(filtered_orphans))
-    
-    if filtered_orphans:
-        orphan_rows = [
-            {
-                "No": idx + 1,
-                "Modul": o.upload.jenis_file if o.upload else "-",
-                "Baris": o.row_number or "-",
-                "NIK Tertera": o.nik or "-",
-                "Nama Tertera": o.nama or "-",
-                "Departemen": o.departemen or "-",
-                "Data Mentah": o.raw_data or "-"
-            }
-            for idx, o in enumerate(filtered_orphans)
-        ]
-        st.dataframe(pd.DataFrame(orphan_rows), use_container_width=True, hide_index=True)
+    if len(df_f) > 0:
+        df_out = df_f[['jenis_file', 'triwulan', 'tahun', 'row_number', 'nik', 'nama', 'departemen']].copy()
+        df_out.columns = ['Modul', 'TW', 'Tahun', 'Baris Excel', 'NIK Tertera', 'Nama Tertera', 'Departemen Tertera']
+        st.dataframe(df_out, use_container_width=True, hide_index=True)
     else:
-        st.success("Tidak ada data orphan pada filter ini! Semua baris cocok dengan Master Data.")
+        st.success("Bagus! Tidak ada data orphan yang perlu direview pada filter ini.")
 
 # ----------------- 7. RIWAYAT AKTIVITAS -----------------
 elif menu == "📜 Riwayat Aktivitas":
     st.markdown('<div class="main-header">📜 Riwayat Aktivitas & Sinkronisasi</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Log historis berkas unggahan dan aktivitas pengelolaan data sistem</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Log historis aktivitas unggah, sinkronisasi, dan pengelolaan data kinerja</div>', unsafe_allow_html=True)
     
-    uploads = db.query(Upload).order_by(Upload.id.desc()).limit(15).all()
+    df_u = query_df("SELECT * FROM uploads ORDER BY id DESC LIMIT 15")
     
-    u_rows = [
-        {
-            "No": idx + 1,
-            "Modul": u.jenis_file,
-            "Keterangan / Berkas": u.filename,
-            "Waktu": u.uploaded_at.strftime("%d %b %Y, %H:%M WIB") if u.uploaded_at else "-",
-            "Operator": u.uploaded_by or "Admin",
-            "Baris Sukses": f"{u.row_count} baris" if not "Hapus" in u.filename else "Data Dihapus",
-            "Orphan (Review)": u.orphan_row_count
-        }
-        for idx, u in enumerate(uploads)
-    ]
-    st.dataframe(pd.DataFrame(u_rows), use_container_width=True, hide_index=True)
+    if len(df_u) > 0:
+        df_u_show = df_u[['jenis_file', 'filename', 'uploaded_at', 'uploaded_by', 'row_count', 'orphan_row_count']].copy()
+        df_u_show.columns = ['Modul / Jenis', 'Keterangan / Berkas', 'Waktu Aktivitas', 'Operator', 'Baris Valid', 'Orphan (Review)']
+        st.dataframe(df_u_show, use_container_width=True, hide_index=True)
+    else:
+        st.info("Belum ada riwayat aktivitas tercatat.")
 
-db.close()
+if isinstance(conn, sqlite3.Connection):
+    conn.close()
