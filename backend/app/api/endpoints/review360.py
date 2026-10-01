@@ -115,9 +115,9 @@ def get_review360_detail(
         return []
 
     query = db.query(PerformanceReview360).filter(PerformanceReview360.period_id == period.id)
-    if departemen:
+    if departemen and isinstance(departemen, str):
         query = query.filter(PerformanceReview360.departemen == departemen)
-    if search:
+    if search and isinstance(search, str):
         search_term = f"%{search}%"
         query = query.filter(
             (PerformanceReview360.nama.ilike(search_term)) |

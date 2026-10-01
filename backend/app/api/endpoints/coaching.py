@@ -106,9 +106,9 @@ def get_coaching_detail(
         return []
 
     query = db.query(PerformanceCoaching).filter(PerformanceCoaching.period_id == period.id)
-    if departemen:
+    if departemen and isinstance(departemen, str):
         query = query.filter(PerformanceCoaching.departemen == departemen)
-    if search:
+    if search and isinstance(search, str):
         search_term = f"%{search}%"
         query = query.filter(
             (PerformanceCoaching.nama.ilike(search_term)) |

@@ -109,9 +109,9 @@ def get_planning_detail(
         return []
 
     query = db.query(PerformancePlanning).filter(PerformancePlanning.period_id == period.id)
-    if departemen:
+    if departemen and isinstance(departemen, str):
         query = query.filter(PerformancePlanning.departemen == departemen)
-    if search:
+    if search and isinstance(search, str):
         search_term = f"%{search}%"
         query = query.filter(
             (PerformancePlanning.nama.ilike(search_term)) |

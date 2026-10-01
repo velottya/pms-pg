@@ -109,9 +109,9 @@ def get_appraisal_detail(
         return []
 
     query = db.query(PerformanceAppraisal).filter(PerformanceAppraisal.period_id == period.id)
-    if departemen:
+    if departemen and isinstance(departemen, str):
         query = query.filter(PerformanceAppraisal.departemen == departemen)
-    if search:
+    if search and isinstance(search, str):
         search_term = f"%{search}%"
         query = query.filter(
             (PerformanceAppraisal.nama.ilike(search_term)) |
