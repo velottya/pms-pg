@@ -6,8 +6,6 @@ from typing import List, Dict, Any, Optional
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.chart import PieChart, BarChart, Reference, Series
-from openpyxl.chart.label import DataLabelList
 
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib import colors
@@ -82,14 +80,18 @@ def find_logo_path() -> Optional[str]:
     return None
 
 
-def create_status_pie_drawing(summary_data: Dict[str, Any], width: float = 375, height: float = 110) -> Drawing:
+def create_status_pie_drawing(summary_data: Dict[str, Any], width: float = 380, height: float = 125) -> Drawing:
     """
     Create a clean executive vector Donut/Pie chart for Status distribution in ReportLab.
+    Properly positioned with non-overlapping header and clean legend.
     """
     d = Drawing(width, height)
     # Background card
     d.add(Rect(0, 0, width, height, fillColor=colors.HexColor("#F8FAFC"), strokeColor=colors.HexColor("#E2E8F0"), strokeWidth=1, rx=6, ry=6))
-    d.add(String(12, height - 16, "DISTRIBUSI STATUS KINERJA", fontName="Helvetica-Bold", fontSize=8, fillColor=colors.HexColor("#0F172A")))
+    
+    # Header Title & Divider
+    d.add(String(14, height - 15, "DISTRIBUSI STATUS KINERJA", fontName="Helvetica-Bold", fontSize=8, fillColor=colors.HexColor("#0F172A")))
+    d.add(Line(14, height - 20, width - 14, height - 20, strokeColor=colors.HexColor("#E2E8F0"), strokeWidth=0.75))
 
     total = summary_data.get("total_employees", 0)
     app = summary_data.get("approved_count", 0)
@@ -97,26 +99,25 @@ def create_status_pie_drawing(summary_data: Dict[str, Any], width: float = 375, 
     draft = summary_data.get("drafted_count", 0) or summary_data.get("declined_count", 0) or summary_data.get("ny_done_count", 0)
     ny = summary_data.get("not_yet_submitted_count", 0)
 
-    # Values for pie (ensure non-zero slice representation if total > 0)
     data = [app, wait, draft, ny]
     if sum(data) == 0:
         data = [1]
         colors_list = [colors.HexColor("#E2E8F0")]
     else:
-        # replace zeros with 0
         data = [max(0, x) for x in data]
         colors_list = [
-            colors.HexColor("#059669"), # Emerald
-            colors.HexColor("#D97706"), # Amber
-            colors.HexColor("#2563EB"), # Blue
-            colors.HexColor("#DC2626"), # Rose
+            colors.HexColor("#059669"), # Emerald (Approved)
+            colors.HexColor("#D97706"), # Amber (Waiting)
+            colors.HexColor("#2563EB"), # Blue (Drafted)
+            colors.HexColor("#DC2626"), # Rose (NY Submit)
         ]
 
+    # Pie placed safely below divider line
     pie = Pie()
-    pie.x = 10
-    pie.y = 8
-    pie.width = 85
-    pie.height = 85
+    pie.x = 16
+    pie.y = 10
+    pie.width = 75
+    pie.height = 75
     pie.data = data
     for idx, c in enumerate(colors_list):
         if idx < len(pie.slices):
@@ -133,26 +134,30 @@ def create_status_pie_drawing(summary_data: Dict[str, Any], width: float = 375, 
         ("Not Yet Submitted", ny, summary_data.get("not_yet_submitted_pct", 0.0), "#DC2626"),
     ]
 
-    y_pos = height - 34
+    y_pos = height - 37
     for lbl, cnt, pct, col in labels:
-        d.add(Circle(112, y_pos + 3, 3.5, fillColor=colors.HexColor(col), strokeColor=None))
-        d.add(String(122, y_pos, f"{lbl}:", fontName="Helvetica-Bold", fontSize=7.5, fillColor=colors.HexColor("#1E293B")))
+        d.add(Circle(114, y_pos + 3, 3.5, fillColor=colors.HexColor(col), strokeColor=None))
+        d.add(String(124, y_pos, f"{lbl}:", fontName="Helvetica-Bold", fontSize=7.5, fillColor=colors.HexColor("#1E293B")))
         d.add(String(230, y_pos, f"{cnt:,} peg".replace(",", "."), fontName="Helvetica", fontSize=7.5, fillColor=colors.HexColor("#475569")))
-        d.add(String(295, y_pos, f"({pct:.1f}%)", fontName="Helvetica-Bold", fontSize=7.5, fillColor=colors.HexColor(col)))
-        y_pos -= 17
+        d.add(String(300, y_pos, f"({pct:.1f}%)", fontName="Helvetica-Bold", fontSize=7.5, fillColor=colors.HexColor(col)))
+        y_pos -= 19
 
     return d
 
 
-def create_progress_bar_drawing(summary_data: Dict[str, Any], score_dist: Optional[Dict[str, Any]] = None, width: float = 380, height: float = 110) -> Drawing:
+def create_progress_bar_drawing(summary_data: Dict[str, Any], score_dist: Optional[Dict[str, Any]] = None, width: float = 380, height: float = 125) -> Drawing:
     """
-    Create a secondary visual chart: Score Distribution (for Appraisal/360) or Top Accomplishment Units.
+    Create secondary visual chart:
+    - Score Distribution (for Appraisal/360) with clear categories.
+    - Top Accomplishment Units with 100% full department names (no truncation, no '...').
     """
     d = Drawing(width, height)
     d.add(Rect(0, 0, width, height, fillColor=colors.HexColor("#F8FAFC"), strokeColor=colors.HexColor("#E2E8F0"), strokeWidth=1, rx=6, ry=6))
 
     if score_dist and "counts" in score_dist:
-        d.add(String(12, height - 16, "DISTRIBUSI NILAI KINERJA", fontName="Helvetica-Bold", fontSize=8, fillColor=colors.HexColor("#0F172A")))
+        d.add(String(14, height - 15, "DISTRIBUSI NILAI KINERJA", fontName="Helvetica-Bold", fontSize=8, fillColor=colors.HexColor("#0F172A")))
+        d.add(Line(14, height - 20, width - 14, height - 20, strokeColor=colors.HexColor("#E2E8F0"), strokeWidth=0.75))
+        
         counts = score_dist.get("counts", {})
         total_sc = sum(counts.values()) or 1
         
@@ -163,8 +168,8 @@ def create_progress_bar_drawing(summary_data: Dict[str, Any], score_dist: Option
             ("Nilai < 85", counts.get("under_85", 0), "#DC2626"),
         ]
 
-        y_pos = height - 34
-        max_bar_w = 160
+        y_pos = height - 37
+        max_bar_w = 155
         for lbl, cnt, col in items:
             pct = (cnt / total_sc) * 100.0 if total_sc > 0 else 0.0
             d.add(String(14, y_pos, lbl, fontName="Helvetica-Bold", fontSize=7.5, fillColor=colors.HexColor("#1E293B")))
@@ -174,36 +179,41 @@ def create_progress_bar_drawing(summary_data: Dict[str, Any], score_dist: Option
             fill_w = max_bar_w * (pct / 100.0) if pct > 0 else 0
             if fill_w > 0:
                 d.add(Rect(110, y_pos - 1, max(fill_w, 2), 7, fillColor=colors.HexColor(col), strokeColor=None, rx=2, ry=2))
-            d.add(String(280, y_pos, f"{cnt:,} peg".replace(",", "."), fontName="Helvetica", fontSize=7.5, fillColor=colors.HexColor("#475569")))
-            d.add(String(335, y_pos, f"({pct:.1f}%)", fontName="Helvetica-Bold", fontSize=7.5, fillColor=colors.HexColor(col)))
-            y_pos -= 17
+            d.add(String(275, y_pos, f"{cnt:,} peg".replace(",", "."), fontName="Helvetica", fontSize=7.5, fillColor=colors.HexColor("#475569")))
+            d.add(String(330, y_pos, f"({pct:.1f}%)", fontName="Helvetica-Bold", fontSize=7.5, fillColor=colors.HexColor(col)))
+            y_pos -= 19
     else:
-        d.add(String(12, height - 16, "TOP PENCAPAIAN PROGRESS DEPARTEMEN", fontName="Helvetica-Bold", fontSize=8, fillColor=colors.HexColor("#0F172A")))
-        dept_list = sorted(summary_data.get("per_departemen", []), key=lambda x: x.get("accomplishments_pct", 0), reverse=True)[:4]
+        d.add(String(14, height - 15, "TOP PENCAPAIAN PROGRESS DEPARTEMEN", fontName="Helvetica-Bold", fontSize=8, fillColor=colors.HexColor("#0F172A")))
+        d.add(Line(14, height - 20, width - 14, height - 20, strokeColor=colors.HexColor("#E2E8F0"), strokeWidth=0.75))
         
-        y_pos = height - 34
-        max_bar_w = 145
+        dept_list = sorted(summary_data.get("per_departemen", []), key=lambda x: x.get("accomplishments_pct", 0), reverse=True)[:3]
+        
         if not dept_list:
-            d.add(String(14, y_pos, "Tidak ada data departemen", fontName="Helvetica", fontSize=8, fillColor=colors.HexColor("#64748B")))
+            d.add(String(14, height - 45, "Tidak ada data departemen", fontName="Helvetica", fontSize=8, fillColor=colors.HexColor("#64748B")))
         else:
+            y_pos = height - 35
             for d_item in dept_list:
+                # Full department name - completely visible with zero truncation
                 dept_name = str(d_item.get("departemen", "-"))
-                if len(dept_name) > 18:
-                    dept_name = dept_name[:17] + "..."
                 acc_pct = float(d_item.get("accomplishments_pct", 0.0))
                 tot = d_item.get("total", 0)
 
                 col = "#059669" if acc_pct >= 90 else ("#D97706" if acc_pct >= 70 else "#DC2626")
-                d.add(String(14, y_pos, dept_name, fontName="Helvetica-Bold", fontSize=7, fillColor=colors.HexColor("#1E293B")))
-                # Track
-                d.add(Rect(125, y_pos - 1, max_bar_w, 7, fillColor=colors.HexColor("#E2E8F0"), strokeColor=None, rx=2, ry=2))
-                # Fill
-                fill_w = max_bar_w * (min(acc_pct, 100.0) / 100.0)
+                
+                # Line 1: Full Department Name (up to 310pt) & Percentage Badge
+                font_sz = 6.5 if len(dept_name) > 42 else 7.0
+                d.add(String(14, y_pos, dept_name, fontName="Helvetica-Bold", fontSize=font_sz, fillColor=colors.HexColor("#0F172A")))
+                d.add(String(330, y_pos, f"{acc_pct:.1f}%", fontName="Helvetica-Bold", fontSize=7.5, fillColor=colors.HexColor(col)))
+                
+                # Line 2: Wide Progress Bar Track & Fill + Total Employees
+                track_w = 300
+                d.add(Rect(14, y_pos - 8, track_w, 5, fillColor=colors.HexColor("#E2E8F0"), strokeColor=None, rx=2, ry=2))
+                fill_w = track_w * (min(acc_pct, 100.0) / 100.0)
                 if fill_w > 0:
-                    d.add(Rect(125, y_pos - 1, max(fill_w, 2), 7, fillColor=colors.HexColor(col), strokeColor=None, rx=2, ry=2))
-                d.add(String(280, y_pos, f"{tot} peg", fontName="Helvetica", fontSize=7, fillColor=colors.HexColor("#475569")))
-                d.add(String(325, y_pos, f"{acc_pct:.1f}%", fontName="Helvetica-Bold", fontSize=7.5, fillColor=colors.HexColor(col)))
-                y_pos -= 17
+                    d.add(Rect(14, y_pos - 8, max(fill_w, 2), 5, fillColor=colors.HexColor(col), strokeColor=None, rx=2, ry=2))
+                d.add(String(325, y_pos - 7, f"{tot} peg", fontName="Helvetica", fontSize=6.5, fillColor=colors.HexColor("#64748B")))
+                
+                y_pos -= 26
 
     return d
 
@@ -224,8 +234,8 @@ def generate_pdf_report(
         pagesize=landscape(A4),
         leftMargin=36,
         rightMargin=36,
-        topMargin=28,
-        bottomMargin=38,
+        topMargin=26,
+        bottomMargin=36,
     )
 
     page_w, page_h = landscape(A4)
@@ -319,7 +329,7 @@ def generate_pdf_report(
         ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
     ]))
     story.append(header_table)
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 5))
 
     # 2. Executive KPI Cards
     total_emp = summary_data.get('total_employees', 0)
@@ -373,12 +383,12 @@ def generate_pdf_report(
         ('BOX', (4, 0), (4, 0), 1, colors.HexColor("#FECACA")),
     ]))
     story.append(kpi_table)
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 5))
 
-    # 3. Visual Charts (Pie + Secondary Chart) Side-by-Side
+    # 3. Visual Charts (Pie + Secondary Chart) Side-by-Side (Height 125pt)
     half_w = (usable_w - 10) / 2.0
-    pie_drawing = create_status_pie_drawing(summary_data, width=half_w, height=105)
-    secondary_drawing = create_progress_bar_drawing(summary_data, score_dist=score_distribution, width=half_w, height=105)
+    pie_drawing = create_status_pie_drawing(summary_data, width=half_w, height=125)
+    secondary_drawing = create_progress_bar_drawing(summary_data, score_dist=score_distribution, width=half_w, height=125)
 
     charts_table = Table([[pie_drawing, secondary_drawing]], colWidths=[half_w, half_w])
     charts_table.setStyle(TableStyle([
@@ -389,19 +399,19 @@ def generate_pdf_report(
         ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
     ]))
     story.append(charts_table)
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 6))
 
     # 4. Department Breakdown Table Header
     section_style = ParagraphStyle(
         'SectionHeader',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=9,
+        fontSize=8.5,
         leading=11,
         textColor=colors.HexColor('#0F172A')
     )
     story.append(Paragraph("Rekapitulasi Progress per Departemen", section_style))
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 3))
 
     # Table styles
     th_style = ParagraphStyle('TH', fontName='Helvetica-Bold', fontSize=7.5, leading=9, textColor=colors.white, alignment=1)
@@ -479,8 +489,8 @@ def generate_pdf_report(
     table_styles = [
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#0F172A")),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 0), (-1, -1), 3),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ('TOPPADDING', (0, 0), (-1, -1), 2.5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 2.5),
         ('LEFTPADDING', (0, 0), (-1, -1), 4),
         ('RIGHTPADDING', (0, 0), (-1, -1), 4),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
@@ -509,7 +519,7 @@ def generate_excel_report(
     score_distribution: Optional[Dict[str, Any]] = None
 ) -> bytes:
     """
-    Generate professional openpyxl Excel spreadsheet with styled Summary, Native Charts & Detail sheets.
+    Generate clean, professional openpyxl Excel spreadsheet with Summary & Detail sheets (without embedded chart objects).
     """
     wb = openpyxl.Workbook()
     
@@ -530,22 +540,22 @@ def generate_excel_report(
         bottom=Side(style='thin', color='CBD5E1')
     )
 
-    # --- Sheet 1: Summary & Dashboard ---
+    # --- Sheet 1: Summary Departemen ---
     ws_sum = wb.active
-    ws_sum.title = "Ringkasan & Visualisasi"
+    ws_sum.title = "Ringkasan Departemen"
     
     ws_sum["A1"] = "PT PETROKIMIA GRESIK"
     ws_sum["A1"].font = title_font
-    ws_sum["A2"] = f"Laporan Eksekutif: {modul_title} — {period_label}"
+    ws_sum["A2"] = f"Laporan {modul_title} — {period_label}"
     ws_sum["A2"].font = subtitle_font
-    ws_sum["A3"] = f"Generated at: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M WIB')} | Sistem Manajemen Kinerja Karyawan (PMS)"
+    ws_sum["A3"] = f"Generated at: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M WIB')} | Performance Management System (PMS)"
     ws_sum["A3"].font = Font(name="Calibri", size=9, italic=True, color="64748B")
 
-    # Status Breakdown KPI Summary Table (Columns A-C)
+    # Status KPI Table
     ws_sum["A5"] = "Status Kinerja"
     ws_sum["B5"] = "Jumlah Pegawai"
     ws_sum["C5"] = "Persentase (%)"
-    for col_idx, col_name in enumerate(["A5", "B5", "C5"], 1):
+    for col_name in ["A5", "B5", "C5"]:
         cell = ws_sum[col_name]
         cell.fill = header_fill
         cell.font = header_font
@@ -571,40 +581,20 @@ def generate_excel_report(
         c1 = ws_sum.cell(row=s_idx, column=1, value=st_name)
         c2 = ws_sum.cell(row=s_idx, column=2, value=st_cnt)
         c3 = ws_sum.cell(row=s_idx, column=3, value=f"{pct:.1f}%")
-        c1.font = regular_font
-        c2.font = regular_font
-        c3.font = regular_font
-        c1.border = thin_border
-        c2.border = thin_border
-        c3.border = thin_border
+        for c in [c1, c2, c3]:
+            c.font = regular_font
+            c.border = thin_border
         c2.alignment = Alignment(horizontal="center")
         c3.alignment = Alignment(horizontal="right")
         ws_sum.row_dimensions[s_idx].height = 18
 
-    # Add Native Excel Pie Chart for Status
-    try:
-        pie = PieChart()
-        pie.title = "Distribusi Status Kinerja"
-        pie.width = 14
-        pie.height = 7.5
-        labels_ref = Reference(ws_sum, min_col=1, min_row=6, max_row=9)
-        data_ref = Reference(ws_sum, min_col=2, min_row=5, max_row=9)
-        pie.add_data(data_ref, titles_from_data=True)
-        pie.set_categories(labels_ref)
-        pie.dataLabels = DataLabelList()
-        pie.dataLabels.showPercent = True
-        pie.dataLabels.showVal = False
-        ws_sum.add_chart(pie, "E5")
-    except Exception as e:
-        print(f"Excel chart warning: {e}")
-
-    # Add Score Distribution table if available
-    start_dept_row = 15
+    # Score Distribution Table if available
+    start_dept_row = 12
     if score_distribution and "counts" in score_distribution:
-        ws_sum["A11"] = "Kategori Nilai"
-        ws_sum["B11"] = "Jumlah Pegawai"
-        ws_sum["C11"] = "Persentase (%)"
-        for col_name in ["A11", "B11", "C11"]:
+        ws_sum["E5"] = "Kategori Nilai"
+        ws_sum["F5"] = "Jumlah Pegawai"
+        ws_sum["G5"] = "Persentase (%)"
+        for col_name in ["E5", "F5", "G5"]:
             c = ws_sum[col_name]
             c.fill = header_fill
             c.font = header_font
@@ -619,20 +609,16 @@ def generate_excel_report(
             ("Nilai 85 - 95", sc_counts.get("85_to_95", 0)),
             ("Nilai < 85", sc_counts.get("under_85", 0)),
         ]
-        for sc_idx, (sc_label, sc_val) in enumerate(sc_rows, 12):
+        for sc_idx, (sc_label, sc_val) in enumerate(sc_rows, 6):
             sc_pct = (sc_val / sc_tot * 100) if sc_tot > 0 else 0.0
-            c1 = ws_sum.cell(row=sc_idx, column=1, value=sc_label)
-            c2 = ws_sum.cell(row=sc_idx, column=2, value=sc_val)
-            c3 = ws_sum.cell(row=sc_idx, column=3, value=f"{sc_pct:.1f}%")
-            c1.font = regular_font
-            c2.font = regular_font
-            c3.font = regular_font
-            c1.border = thin_border
-            c2.border = thin_border
-            c3.border = thin_border
+            c1 = ws_sum.cell(row=sc_idx, column=5, value=sc_label)
+            c2 = ws_sum.cell(row=sc_idx, column=6, value=sc_val)
+            c3 = ws_sum.cell(row=sc_idx, column=7, value=f"{sc_pct:.1f}%")
+            for c in [c1, c2, c3]:
+                c.font = regular_font
+                c.border = thin_border
             c2.alignment = Alignment(horizontal="center")
             c3.alignment = Alignment(horizontal="right")
-        start_dept_row = 18
 
     # Department Breakdown Table
     ws_sum.cell(row=start_dept_row, column=1, value="Rekapitulasi Progress per Departemen").font = section_font
